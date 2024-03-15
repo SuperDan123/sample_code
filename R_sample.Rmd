@@ -1,0 +1,841 @@
+---
+title: "report_foc_parameter"
+author: "Daisy Dan Song"
+date: "2024-01-11"
+output: html_document
+---
+# initialize setting
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  results = "show"
+  )
+rm(list = ls())
+library(Dispatching)
+library(magrittr)
+library(codetools)
+library(ggplot2)
+library(foreach)
+```
+
+# set constant
+
+```{r}
+seed <- 1
+set.seed(seed)
+n_ths <- 2
+t <- 1
+n <- 10
+lower_bd <- 0.1
+upper_bd <- 10
+
+constant <- 
+  set_constant(
+    n_ths = n_ths
+  )
+```
+
+
+# impose baseline setting 
+
+```{r}
+# generate template
+equilibrium <-
+  generate_equilibrium(
+    n_ths = n_ths,
+    seed = seed
+  )
+
+# c_2^F = 0
+equilibrium$parameter$gamma_f[2] <- -100
+c_f <-
+  compute_c_f_t(
+    gamma_f = equilibrium$parameter$gamma_f,
+    x_c = equilibrium$exogenous[[t]]$x_c,
+    ec_f = equilibrium$shock[[t]]$ec_f
+  ) 
+
+c_w <- 
+  compute_c_w_t(
+    gamma_w = equilibrium$parameter$gamma_w,
+    x_c = equilibrium$exogenous[[1]]$x_c,
+    ec_w = equilibrium$shock[[1]]$ec_w
+  ) 
+
+# no private market: mu_1 = 0
+equilibrium$shock[[t]]$mu[1] <- 0
+
+# make ths popular
+equilibrium$parameter$beta_f[2] <- 10
+
+# compute a_w
+beta_w <- equilibrium$parameter$beta_w
+x_a <- equilibrium$exogenous[[t]]$x_a
+ea_w <- equilibrium$shock[[t]]$ea_w  
+a_w <-
+  compute_a_w_t(
+    beta_w = beta_w,
+    x_a = x_a,
+    ea_w = ea_w
+  ) 
+```
+
+# search parameters of interest
+
+```{r}
+
+m_f <- 
+  seq(
+    lower_bd,
+    1-lower_bd,
+    length.out = n
+    )
+
+lambda_f <- -
+  seq(
+    lower_bd,
+    upper_bd,
+    length.out = n
+    )
+
+lambda_w <- 
+  seq(
+    lower_bd,
+    upper_bd,
+    length.out = n
+    )
+
+tib <- 
+  tidyr::expand_grid(
+    m_f, 
+    lambda_f, 
+    lambda_w
+  ) %>%
+  dplyr::mutate(
+    k = 1:length(m_f)
+  ) %>%
+  dplyr::select(
+    k,
+    dplyr::everything()
+  )
+```
+
+# check all equilibrium condition
+
+```{r}
+for (
+  k in 1:nrow(tib)
+) {
+
+  equilibrium$parameter$m_f <- tib$m_f[k]
+  equilibrium$parameter$lambda_w <- tib$lambda_w[k]
+  equilibrium$parameter$lambda_f <- tib$lambda_f[k]
+
+  equi_exist <- 
+    check_equilibrium_path_t(
+      t = t,
+      equilibrium = equilibrium
+    )
+  tib$equi_exist[k] <- equi_exist
+}
+
+tib
+
+```
+
+# compute foc at A = B
+```{r}
+for (
+  k in 1:nrow(tib)
+) {
+
+  tib$foc_w[k] <- NA
+  tib$foc_f[k] <- NA
+  tib$w[k] <- NA
+  tib$f[k] <- NA
+  
+  tryCatch(
+    {
+        equilibrium$parameter$m_f <- tib$m_f[k]
+        equilibrium$parameter$m_w <- 1 - tib$m_f[k]
+        equilibrium$parameter$lambda_w <- tib$lambda_w[k]
+        equilibrium$parameter$lambda_f <- tib$lambda_f[k]
+            
+        tib$f[k] <- 
+          solve_f2_ab(
+            t = t,
+            equilibrium = equilibrium
+          )
+      
+        tib$w[k] <- 
+          solve_w_f2(
+            t = t,
+            equilibrium = equilibrium
+          )
+      
+        foc <- 
+          compute_foc_t_debug_1(
+            t = t,
+            equilibrium = equilibrium
+        )
+        
+        tib$foc_w[k] <- foc[1]
+        tib$foc_f[k] <- foc[2]
+        
+        
+        
+    }, error = function(e) {
+        foc <- NA
+    }
+  )
+  
+}
+tib
+```
+
+## plot foc_f
+```{r, results = "asis"}
+for (
+  k in 1:nrow(tib)
+) {
+  if (tib$equi_exist[k] == "No equilibrium"){
+    tib$equi_existence[k] <- FALSE
+  }else{
+    tib$equi_existence[k] <- TRUE
+  }
+}
+
+p <-
+  tib %>%
+  dplyr::mutate(
+    equili = equi_existence
+  ) %>%
+  ggplot(
+    aes(
+      x = foc_f,
+      y = m_f,
+      color = equili
+    )
+  ) +
+  geom_point() +
+  scale_color_viridis_d() +
+  theme_classic() +
+  geom_vline(
+    xintercept = 0, 
+    linetype = "dashed", 
+    color = "red"
+  )
+p %>%
+  print() 
+
+
+```
+
+## plot foc_w
+```{r, results = "asis"}
+p <-
+  tib %>%
+  dplyr::mutate(
+    equili = equi_existence
+  ) %>%
+  ggplot(
+    aes(
+      x = foc_w,
+      y = m_f,
+      color = equili
+    )
+  ) +
+  geom_point() +
+  scale_color_viridis_d() +
+  theme_classic() +
+  geom_vline(
+    xintercept = 0, 
+    linetype = "dashed", 
+    color = "red"
+    )
+
+p %>%
+  print() 
+```
+
+# check profits local deviation
+```{r}
+ tib_2 <- 
+  tib %>% 
+  dplyr::select(
+    m_f,
+    lambda_f,
+    lambda_w,
+    equi_existence,
+    w,
+    f,
+  )
+
+for (
+  k in 1:nrow(tib_2)
+) {
+
+    tib_2$check_w[k] <- NA
+    tib_2$check_f[k] <- NA
+    
+      tryCatch(
+    {
+      equilibrium$parameter$m_f <- tib$m_f[k]
+      equilibrium$parameter$m_w <- 1 - tib$m_f[k]
+      equilibrium$parameter$lambda_w <- tib$lambda_w[k]
+      equilibrium$parameter$lambda_f <- tib$lambda_f[k]
+      
+      equilibrium <- 
+        solve_equilibrium_debug(
+          t = t,
+          equilibrium = equilibrium
+        )
+  
+      t <- 1
+      m_w <- equilibrium$parameter$m_w
+      m_f <- equilibrium$parameter$m_f
+      beta_f <- equilibrium$parameter$beta_f
+      beta_w <- equilibrium$parameter$beta_w
+      gamma_f <- equilibrium$parameter$gamma_f
+      gamma_w <- equilibrium$parameter$gamma_w
+      size_w <- equilibrium$exogenous[[t]]$size_w
+      size_f <- equilibrium$exogenous[[t]]$size_f
+      lambda_f <- equilibrium$parameter$lambda_f
+      lambda_w <- equilibrium$parameter$lambda_w
+      mu <- equilibrium$shock[[t]]$mu
+      ea_f <- equilibrium$shock[[t]]$ea_f
+      ec_f <- equilibrium$shock[[t]]$ec_f
+      f <- equilibrium$endogenous[[t]]$f
+      s_f <- equilibrium$endogenous[[t]]$s_f
+      ea_f <- equilibrium$shock[[t]]$ea_f
+      ec_f <- equilibrium$shock[[t]]$ec_f
+      ea_w <- equilibrium$shock[[t]]$ea_w
+      ec_w <- equilibrium$shock[[t]]$ec_w
+      x_a <- equilibrium$exogenous[[t]]$x_a
+      x_c <- equilibrium$exogenous[[t]]$x_c
+      f <- equilibrium$endogenous[[t]]$f
+      s_f <- equilibrium$endogenous[[t]]$s_f
+      s_w <- equilibrium$endogenous[[t]]$s_w
+      w <- equilibrium$endogenous[[t]]$w
+      owner <- equilibrium$exogenous[[t]]$owner
+      margin <- equilibrium$constant$margin
+      quadrature_size <- equilibrium$constant$quadrature_size
+      tol <- equilibrium$constant$tol
+        
+      profit_ths <-
+        solve_w_f_profit_optim_local_t(
+          m_w = m_w,
+          m_f = m_f,
+          beta_w = beta_w,
+          beta_f = beta_f,
+          gamma_w = gamma_w,
+          gamma_f = gamma_f,
+          lambda_w = lambda_w,
+          lambda_f = lambda_f,
+          x_a = x_a,
+          x_c = x_c,
+          size_w = size_w,
+          size_f = size_f,
+          owner = owner,
+          mu = mu,
+          ea_w = ea_w,
+          ea_f = ea_f,
+          ec_w = ec_w,
+          ec_f = ec_f,
+          w = w,
+          f = f,
+          s_f = s_f,
+          method_s_w = "exact",
+          margin = margin,
+          quadrature_size = quadrature_size,
+          tol = tol
+        )
+      
+      tib_2$check_w[k] <- profit_ths$w[2]
+      tib_2$check_f[k] <- profit_ths$f[2]
+    
+    }, error = function(e) {
+        foc <- NA
+    }
+  )
+    
+
+}
+
+tib_2$w_diff <- tib_2$w - tib_2$check_w
+tib_2$f_diff <- tib_2$f - tib_2$check_f
+
+for (
+  k in 1:nrow(tib_2)
+) {
+  if ( is.na(tib_2$w_diff[k]) | is.na(tib_2$f_diff[k])){
+    tib_2$deviate[k] <- NA
+  }else if( abs(tib_2$w_diff[k]) < 1.5e-03 &
+    abs(tib_2$f_diff[k]) < 1.5e-03
+    ){
+      tib_2$deviate[k] <- FALSE
+  }else{
+      tib_2$deviate[k] <- TRUE
+    }
+}
+tib_2
+```
+## check f and w simultaneously
+
+```{r}
+
+tib_2 %>%
+  ggplot(
+    aes(
+      x = f_diff,
+      y = w_diff,
+      color = equi_existence
+    )
+  ) +
+  geom_point() +
+  scale_color_viridis_d() +
+  theme_classic() +
+  geom_hline(
+    yintercept = 0, 
+    linetype = "dashed", 
+    color = "red"
+    ) +
+  geom_vline(
+    xintercept = 0, 
+    linetype = "dashed", 
+    color = "red"
+    )
+
+tib_2 %>%
+  ggplot(
+    aes(
+      x = f_diff,
+      y = w_diff,
+      color = deviate
+    )
+  ) +
+  geom_point(size = 2) +
+  scale_color_viridis_d() +
+  theme_classic() +
+  geom_hline(
+    yintercept = 0, 
+    linetype = "dashed", 
+    color = "red"
+    ) +
+  geom_vline(
+    xintercept = 0, 
+    linetype = "dashed", 
+    color = "red"
+    )
+
+```
+
+
+## check f only
+```{r}
+df <-
+  seq(
+    0,
+    25,
+    by = 0.1
+  ) %>%
+  purrr::map(
+    function(f) {
+      f_z <- 0
+      f_z[2] <- f
+      profit <- 
+        compute_profit_ths_t_f(
+          m_w = m_w,
+          m_f = m_f,
+          beta_w = beta_w,
+          beta_f = beta_f,
+          gamma_w = gamma_w,
+          gamma_f = gamma_f,
+          lambda_w = lambda_w,
+          lambda_f = lambda_f,
+          x_a = x_a,
+          x_c = x_c,
+          size_w = size_w,
+          size_f = size_f,
+          owner = owner,
+          mu = mu,
+          ea_w = ea_w,
+          ea_f = ea_f,
+          ec_w = ec_w,
+          ec_f = ec_f,
+          w = w,
+          f = f_z,
+          s_f = s_f,
+          method_s_w = "exact",
+          margin = margin,
+          quadrature_size = quadrature_size,
+          tol = tol
+        ) 
+      df_t <-
+        data.frame(
+          f_2 = f_z[2],
+          profit = profit[2]
+        )
+      return(df_t)
+    }
+  )  %>%
+  dplyr::bind_rows()
+
+f_upper <- 
+  compute_f_upper_bound(
+    beta_f, 
+    lambda_f, 
+    x_a, 
+    ea_f, 
+    initial_f = 0, 
+    target_h_f = 1.5e-15, 
+    step_size = 0.1, 
+    max_iter = 1.0e4
+    )
+
+df %>%
+  ggplot(
+    aes(
+      x = f_2,
+      y = profit,
+      color = "red"
+    )
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  geom_line() +
+  scale_color_viridis_d() +
+  theme_classic() +
+  geom_vline(
+    xintercept = f_upper,
+    linetype = "dashed", 
+    color = "red")
+
+```
+
+## check w only
+```{r}
+df <-
+  seq(
+    0,
+    50,
+    by = 0.1
+  ) %>%
+  purrr::map(
+    function(w) {
+      w_z <- 0
+      w_z[2] <- w
+      profit <- 
+        compute_profit_ths_t_w(
+          m_w = m_w,
+          m_f = m_f,
+          beta_w = beta_w,
+          beta_f = beta_f,
+          gamma_w = gamma_w,
+          gamma_f = gamma_f,
+          lambda_w = lambda_w,
+          lambda_f = lambda_f,
+          x_a = x_a,
+          x_c = x_c,
+          size_w = size_w,
+          size_f = size_f,
+          owner = owner,
+          mu = mu,
+          ea_w = ea_w,
+          ea_f = ea_f,
+          ec_w = ec_w,
+          ec_f = ec_f,
+          w = w_z,
+          f = f,
+          s_f = s_f,
+          method_s_w = "exact",
+          margin = margin,
+          quadrature_size = quadrature_size,
+          tol = tol
+        ) 
+      df_t <-
+        data.frame(
+          w_2 = w_z[2],
+          profit = profit[2]
+        )
+      return(df_t)
+    }
+  )  %>%
+  dplyr::bind_rows()
+
+df %>%
+  ggplot(
+    aes(
+      x = w_2,
+      y = profit,
+      color = "red"
+    )
+  ) +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  geom_line() +
+  scale_color_viridis_d() +
+  theme_classic()
+
+```
+
+# check why linear shape
+
+## check the shape of s_f
+```{r}
+df <-
+  seq(
+    300,
+    600,
+    by = 0.1
+  ) %>%
+  purrr::map(
+    function(z) {
+      f_z <- f
+      f_z[2] <- z
+      solution <-
+        solve_s_f_t_rcpp(
+          m_w = m_w,
+          m_f = m_f,
+          beta_f = beta_f,
+          lambda_f = lambda_f,
+          x_a = x_a,
+          size_w = size_w,
+          size_f = size_f,
+          mu = mu,
+          ea_f = ea_f,
+          f = f_z,
+          s_f = s_f
+        )
+      df_t <-
+        data.frame(
+          f_2 = f_z[2],
+          ths = 1:length(f) %>% as.factor(),
+          s_f = solution
+        )
+      return(df_t)
+    }
+  )  %>%
+  dplyr::bind_rows()
+
+df %>%
+  dplyr::filter(
+  ths == 2
+  )%>%
+  ggplot(
+    aes(
+      x = f_2,
+      y = s_f,
+    )
+  ) +
+  geom_line() +
+  scale_color_viridis_d() +
+  theme_classic()
+```
+
+## check shape of s_f_d_f
+```{r}
+df <-
+  seq(
+    0,
+    600,
+    by = 1
+  ) %>%
+  purrr::map(
+    function(z) {
+      f_z <- f
+      f_z[2] <- z
+      solution <- 
+          solve_s_f_d_f_t(
+            m_w = m_w,
+            m_f = m_f,
+            beta_f = beta_f,
+            lambda_f = lambda_f,
+            x_a = x_a,
+            size_w = size_w,
+            size_f = size_f,
+            mu = mu,
+            ea_f = ea_f,
+            f = f_z,
+            s_f = s_f
+          )
+      df_t <-
+        data.frame(
+          f_2 = f_z[2],
+          ths = 1:length(f) %>% as.factor(),
+          share = solution[4]
+        )
+      return(df_t)
+    }
+  )  %>%
+  dplyr::bind_rows()
+
+df %>%
+  ggplot(
+    aes(
+      x = f_2,
+      y = share,
+    )
+  ) +
+  geom_line() +
+  scale_color_viridis_d() +
+  theme_classic()
+```
+
+## check shape of q 
+```{r}
+df <-
+  seq(
+    0,
+    600,
+    by = 1
+  ) %>%
+  purrr::map(
+    function(z) {
+      f_z <- f
+      f_z[2] <- z
+      s_f <- 
+        solve_s_f_t_rcpp(
+          m_w = m_w,
+          m_f = m_f,
+          beta_f = beta_f,
+          lambda_f = lambda_f,
+          x_a = x_a,
+          size_w = size_w,
+          size_f = size_f,
+          mu = mu,
+          ea_f = ea_f,
+          f = f_z,
+          s_f = s_f
+        )
+      s_f_d_f <- 
+        solve_s_f_d_f_t(
+            m_w = m_w,
+            m_f = m_f,
+            beta_f = beta_f,
+            lambda_f = lambda_f,
+            x_a = x_a,
+            size_w = size_w,
+            size_f = size_f,
+            mu = mu,
+            ea_f = ea_f,
+            f = f_z,
+            s_f = s_f
+          )
+      solution <-  
+          compute_meeting_number_d_f_t(
+            m_w = m_w,
+            m_f = m_f,
+            size_w = size_w,
+            size_f = size_f,
+            mu = mu,
+            s_f = s_f,
+            s_f_d_f = s_f_d_f
+          ) 
+      df_t <-
+        data.frame(
+          f_2 = f_z[2],
+          ths = 1:length(f) %>% as.factor(),
+          share = solution[2]
+        )
+      return(df_t)
+    }
+  )  %>%
+  dplyr::bind_rows()
+
+df %>%
+  ggplot(
+    aes(
+      x = f_2,
+      y = share,
+    )
+  ) +
+  geom_line() +
+  scale_color_viridis_d() +
+  theme_classic()
+```
+
+## check profit partial derivative with f
+```{r}
+df <-
+  seq(
+    0,
+    600,
+    by = 0.1
+  ) %>%
+  purrr::map(
+    function(z) {
+      f_z <- f
+      f_z[2] <- z
+      solution <-
+        compute_foc_t(
+          m_w = m_w,
+          m_f = m_f,
+          beta_w = beta_w,
+          beta_f = beta_f,
+          gamma_w = gamma_w,
+          gamma_f = gamma_f,
+          lambda_w = lambda_w,
+          lambda_f = lambda_f,
+          x_a = x_a,
+          x_c = x_c,
+          size_w = size_w,
+          size_f = size_f,
+          owner = owner,
+          mu = mu,
+          ea_w = ea_w,
+          ea_f = ea_f,
+          ec_w = ec_w,
+          ec_f = ec_f,
+          w = w,
+          f = f_z,
+          s_f = s_f,
+          method_s_w = "exact",
+          margin = margin,
+          quadrature_size = quadrature_size,
+          tol = tol
+        ) 
+      df_t <-
+        data.frame(
+          f_2 = f_z[2],
+          ths = 1:length(f) %>% as.factor(),
+          share = solution[2]
+        )
+      return(df_t)
+    }
+  )  %>%
+  dplyr::bind_rows()
+
+df %>%
+  ggplot(
+    aes(
+      x = f_2,
+      y = share,
+    )
+  ) +
+  geom_line() +
+  scale_color_viridis_d() +
+  theme_classic() +
+  geom_hline(
+    yintercept = 0, 
+    linetype = "dashed", 
+    color = "red"
+    )
+
+```
+
+
+
+
+
+
+
+
+
