@@ -1,0 +1,1106 @@
+---
+title: 'Testing Simulation: Monopoly'
+output:
+  pdf_document: default
+  html_document: default
+date: "2022-11-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  results = "hide"
+  )
+rm(list = ls())
+library(Dispatching)
+library(foreach)
+library(magrittr)
+library(codetools)
+library(ggplot2)
+library(kableExtra)
+```
+
+# Set constant
+
+```{r}
+seed <- 1
+set.seed(seed)
+n_ths <- 2
+t <- 1
+multistart <- 10
+solver <- "nleqslv"
+```
+
+# Generate the baseline equilibrium
+
+```{r}
+equilibrium <-
+  generate_equilibrium(
+    n_ths = n_ths,
+    seed = seed
+  )
+```
+
+# Comparative statics {.tabset}
+
+## Setting
+
+```{r, results = "asis"}
+equilibrium
+```
+
+## Check the foc at the baseline
+
+```{r, results = "asis"}
+
+equilibrium <-
+    solve_equilibrium_profit_t(
+      t = t,
+      equilibrium = equilibrium
+    )
+
+
+g <-
+  seq(
+    -10,
+    6,
+    by = 0.1
+  ) %>%
+  purrr::map(
+    function(x) {
+      w_x <- equilibrium$endogenous[[t]]$w
+      w_x[2] <- x
+      foc <-
+        compute_foc_t(
+          m_w = equilibrium$parameter$m_w,
+          m_f = equilibrium$parameter$m_f,
+          beta_w = equilibrium$parameter$beta_w,
+          beta_f = equilibrium$parameter$beta_f,
+          gamma_w = equilibrium$parameter$gamma_w,
+          gamma_f = equilibrium$parameter$gamma_f,
+          lambda_w = equilibrium$parameter$lambda_w,
+          lambda_f = equilibrium$parameter$lambda_f,
+          x_a = equilibrium$exogenous[[t]]$x_a,
+          x_c = equilibrium$exogenous[[t]]$x_c,
+          size_w = equilibrium$exogenous[[t]]$size_w,
+          size_f = equilibrium$exogenous[[t]]$size_f,
+          owner = equilibrium$exogenous[[t]]$owner,
+          mu = equilibrium$shock[[t]]$mu,
+          ea_w = equilibrium$shock[[t]]$ea_w,
+          ea_f = equilibrium$shock[[t]]$ea_f,
+          ec_w = equilibrium$shock[[t]]$ec_w,
+          ec_f = equilibrium$shock[[t]]$ec_f,
+          w = w_x,
+          f = equilibrium$endogenous[[t]]$f,
+          s_f = equilibrium$endogenous[[t]]$s_f,
+          method_s_w = equilibrium$constant$method_s_w,
+          margin = equilibrium$constant$margin,
+          quadrature_size = equilibrium$constant$quadrature_size,
+          tol = equilibrium$constant$tol
+        ) 
+      return(
+        tibble::tibble(
+          x = x,
+          foc_1 = foc[2]
+        )
+      )
+    }
+  ) %>%
+  dplyr::bind_rows()
+
+g %>%
+  ggplot(
+    aes(
+      x = x,
+      y = foc_1
+    )
+  ) +
+  geom_line() +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  theme_classic()
+```
+
+```{r, results = "asis"}
+g <-
+  seq(
+    0.1,
+    15,
+    by = 0.1
+  ) %>%
+  purrr::map(
+    function(x) {
+      f_x <- equilibrium$endogenous[[t]]$f
+      f_x[2] <- x
+      foc <-
+        compute_foc_t(
+          m_w = equilibrium$parameter$m_w,
+          m_f = equilibrium$parameter$m_f,
+          beta_w = equilibrium$parameter$beta_w,
+          beta_f = equilibrium$parameter$beta_f,
+          gamma_w = equilibrium$parameter$gamma_w,
+          gamma_f = equilibrium$parameter$gamma_f,
+          lambda_w = equilibrium$parameter$lambda_w,
+          lambda_f = equilibrium$parameter$lambda_f,
+          x_a = equilibrium$exogenous[[t]]$x_a,
+          x_c = equilibrium$exogenous[[t]]$x_c,
+          size_w = equilibrium$exogenous[[t]]$size_w,
+          size_f = equilibrium$exogenous[[t]]$size_f,
+          owner = equilibrium$exogenous[[t]]$owner,
+          mu = equilibrium$shock[[t]]$mu,
+          ea_w = equilibrium$shock[[t]]$ea_w,
+          ea_f = equilibrium$shock[[t]]$ea_f,
+          ec_w = equilibrium$shock[[t]]$ec_w,
+          ec_f = equilibrium$shock[[t]]$ec_f,
+          w = equilibrium$endogenous[[t]]$w,
+          f = f_x,
+          s_f = equilibrium$endogenous[[t]]$s_f,
+          method_s_w = equilibrium$constant$method_s_w,
+          margin = equilibrium$constant$margin,
+          quadrature_size = equilibrium$constant$quadrature_size,
+          tol = equilibrium$constant$tol
+        ) 
+      return(
+        tibble::tibble(
+          x = x,
+          foc_2 = foc[1]
+        )
+      )
+    }
+  ) %>%
+  dplyr::bind_rows()
+
+g %>%
+  ggplot(
+    aes(
+      x = x,
+      y = foc_2
+    )
+  ) +
+  geom_line() +
+  geom_hline(
+  yintercept = 0,
+  linetype = "dashed"
+  ) +
+  theme_classic()
+```
+
+```{r, results = "asis"}
+# without ths = 1
+i <- 2
+owner <- equilibrium$exogenous[[t]]$owner
+index <- owner[i, ] %>% as.logical()
+num <- sum(index)
+g <-
+  seq(
+    -10,
+    10,
+    by = 0.1
+  ) %>%
+  purrr::map(
+    function(x) {
+      w_x <- equilibrium$endogenous[[t]]$w
+      w_x[2] <- x
+      profit <-
+        solve_profit_ths_t(
+          m_w = equilibrium$parameter$m_w,
+          m_f = equilibrium$parameter$m_f,
+          beta_w = equilibrium$parameter$beta_w,
+          beta_f = equilibrium$parameter$beta_f,
+          gamma_w = equilibrium$parameter$gamma_w,
+          gamma_f = equilibrium$parameter$gamma_f,
+          lambda_w = equilibrium$parameter$lambda_w,
+          lambda_f = equilibrium$parameter$lambda_f,
+          x_a = equilibrium$exogenous[[t]]$x_a[index, , drop = FALSE],
+          x_c = equilibrium$exogenous[[t]]$x_c[index, , drop = FALSE],
+          size_w = equilibrium$exogenous[[t]]$size_w,
+          size_f = equilibrium$exogenous[[t]]$size_f,
+          owner = equilibrium$exogenous[[t]]$owner[i, index, drop = FALSE],
+          mu = equilibrium$shock[[t]]$mu[index, , drop = FALSE],
+          ea_w = equilibrium$shock[[t]]$ea_w[index, , drop = FALSE],
+          ea_f = equilibrium$shock[[t]]$ea_f[index, , drop = FALSE],
+          ec_w = equilibrium$shock[[t]]$ec_w[index, , drop = FALSE],
+          ec_f = equilibrium$shock[[t]]$ec_f[index, , drop = FALSE],
+          w = w_x[index, , drop = FALSE],
+          f = equilibrium$endogenous[[t]]$f[index, , drop = FALSE],
+          s_f = equilibrium$endogenous[[t]]$s_f[index, , drop = FALSE],
+          method_s_w = equilibrium$constant$method_s_w,
+          margin = equilibrium$constant$margin,
+          quadrature_size = equilibrium$constant$quadrature_size,
+          tol = equilibrium$constant$tol
+        ) 
+      return(
+        tibble::tibble(
+          x = x,
+          profit_2 = profit
+        )
+      )
+    }
+  ) %>%
+  dplyr::bind_rows()
+
+g %>%
+  ggplot(
+    aes(
+      x = x,
+      y = profit_2
+    )
+  ) +
+  geom_line() +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  theme_classic()
+```
+
+```{r}
+g <-
+  seq(
+    -10,
+    30,
+    by = 0.1
+  ) %>%
+  purrr::map(
+    function(x) {
+      f_x <- equilibrium$endogenous[[t]]$f
+      f_x[2] <- x
+      profit <-
+        solve_profit_ths_t(
+          m_w = equilibrium$parameter$m_w,
+          m_f = equilibrium$parameter$m_f,
+          beta_w = equilibrium$parameter$beta_w,
+          beta_f = equilibrium$parameter$beta_f,
+          gamma_w = equilibrium$parameter$gamma_w,
+          gamma_f = equilibrium$parameter$gamma_f,
+          lambda_w = equilibrium$parameter$lambda_w,
+          lambda_f = equilibrium$parameter$lambda_f,
+          x_a = equilibrium$exogenous[[t]]$x_a,
+          x_c = equilibrium$exogenous[[t]]$x_c,
+          size_w = equilibrium$exogenous[[t]]$size_w,
+          size_f = equilibrium$exogenous[[t]]$size_f,
+          owner = equilibrium$exogenous[[t]]$owner,
+          mu = equilibrium$shock[[t]]$mu,
+          ea_w = equilibrium$shock[[t]]$ea_w,
+          ea_f = equilibrium$shock[[t]]$ea_f,
+          ec_w = equilibrium$shock[[t]]$ec_w,
+          ec_f = equilibrium$shock[[t]]$ec_f,
+          w = equilibrium$endogenous[[t]]$w,
+          f = f_x,
+          s_f = equilibrium$endogenous[[t]]$s_f,
+          method_s_w = equilibrium$constant$method_s_w,
+          margin = equilibrium$constant$margin,
+          quadrature_size = equilibrium$constant$quadrature_size,
+          tol = equilibrium$constant$tol
+        ) 
+      return(
+        tibble::tibble(
+          x = x,
+          profit_2 = profit[2]
+        )
+      )
+    }
+  ) %>%
+  dplyr::bind_rows()
+
+g %>%
+  ggplot(
+    aes(
+      x = x,
+      y = profit_2
+    )
+  ) +
+  geom_line() +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  theme_classic()
+```
+
+```{r, results = "asis"}
+# with ths = 1
+g <-
+  seq(
+    -10,
+    20,
+    by = 0.1
+  ) %>%
+  purrr::map(
+    function(x) {
+      w_x <- equilibrium$endogenous[[t]]$w
+      w_x[2] <- x
+      profit <-
+        solve_profit_ths_t(
+          m_w = equilibrium$parameter$m_w,
+          m_f = equilibrium$parameter$m_f,
+          beta_w = equilibrium$parameter$beta_w,
+          beta_f = equilibrium$parameter$beta_f,
+          gamma_w = equilibrium$parameter$gamma_w,
+          gamma_f = equilibrium$parameter$gamma_f,
+          lambda_w = equilibrium$parameter$lambda_w,
+          lambda_f = equilibrium$parameter$lambda_f,
+          x_a = equilibrium$exogenous[[t]]$x_a,
+          x_c = equilibrium$exogenous[[t]]$x_c,
+          size_w = equilibrium$exogenous[[t]]$size_w,
+          size_f = equilibrium$exogenous[[t]]$size_f,
+          owner = equilibrium$exogenous[[t]]$owner,
+          mu = equilibrium$shock[[t]]$mu,
+          ea_w = equilibrium$shock[[t]]$ea_w,
+          ea_f = equilibrium$shock[[t]]$ea_f,
+          ec_w = equilibrium$shock[[t]]$ec_w,
+          ec_f = equilibrium$shock[[t]]$ec_f,
+          w = w_x,
+          f = equilibrium$endogenous[[t]]$f,
+          s_f = equilibrium$endogenous[[t]]$s_f,
+          method_s_w = equilibrium$constant$method_s_w,
+          margin = equilibrium$constant$margin,
+          quadrature_size = equilibrium$constant$quadrature_size,
+          tol = equilibrium$constant$tol
+        ) 
+      return(
+        tibble::tibble(
+          x = x,
+          profit_2 = profit[2]
+        )
+      )
+    }
+  ) %>%
+  dplyr::bind_rows()
+
+g %>%
+  ggplot(
+    aes(
+      x = x,
+      y = profit_2
+    )
+  ) +
+  geom_line() +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  theme_classic()
+```
+
+```{r}
+g <-
+  seq(
+    -10,
+    2,
+    by = 0.1
+  ) %>%
+  purrr::map(
+    function(x) {
+      f_x <- equilibrium$endogenous[[t]]$w
+      f_x[2] <- x
+      profit <-
+        solve_profit_ths_t(
+          m_w = equilibrium$parameter$m_w,
+          m_f = equilibrium$parameter$m_f,
+          beta_w = equilibrium$parameter$beta_w,
+          beta_f = equilibrium$parameter$beta_f,
+          gamma_w = equilibrium$parameter$gamma_w,
+          gamma_f = equilibrium$parameter$gamma_f,
+          lambda_w = equilibrium$parameter$lambda_w,
+          lambda_f = equilibrium$parameter$lambda_f,
+          x_a = equilibrium$exogenous[[t]]$x_a,
+          x_c = equilibrium$exogenous[[t]]$x_c,
+          size_w = equilibrium$exogenous[[t]]$size_w,
+          size_f = equilibrium$exogenous[[t]]$size_f,
+          owner = equilibrium$exogenous[[t]]$owner,
+          mu = equilibrium$shock[[t]]$mu,
+          ea_w = equilibrium$shock[[t]]$ea_w,
+          ea_f = equilibrium$shock[[t]]$ea_f,
+          ec_w = equilibrium$shock[[t]]$ec_w,
+          ec_f = equilibrium$shock[[t]]$ec_f,
+          w = equilibrium$endogenous[[t]]$f,
+          f = f_x,
+          s_f = equilibrium$endogenous[[t]]$s_f,
+          method_s_w = equilibrium$constant$method_s_w,
+          margin = equilibrium$constant$margin,
+          quadrature_size = equilibrium$constant$quadrature_size,
+          tol = equilibrium$constant$tol
+        ) 
+      return(
+        tibble::tibble(
+          x = x,
+          profit_2 = profit[2]
+        )
+      )
+    }
+  ) %>%
+  dplyr::bind_rows()
+
+g %>%
+  ggplot(
+    aes(
+      x = x,
+      y = profit_2
+    )
+  ) +
+  geom_line() +
+  geom_hline(
+    yintercept = 0,
+    linetype = "dashed"
+  ) +
+  theme_classic()
+```
+
+```{r, results = "asis"}
+baseline <- 
+  evaluate_equilibrium_t(
+    x = equilibrium$parameter$m_w,
+    target = "m_w",
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+baseline %>%
+  kbl() %>%
+  kable_styling()
+```
+
+## Parameter {.tabset}
+
+### m_w (Matching coefficient of worker) {.tabset}
+
+```{r}
+target <- "m_w"
+comparative <- 
+  evaluate_comparative_t(
+    target = target,
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+```
+
+#### table
+
+```{r, results = "asis"}
+comparative %>%
+  dplyr::arrange(
+    i,
+    target
+  ) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+```{r, results = "asis"}
+p <- 
+  plot_comparative(
+    comparative = comparative
+  )
+```
+
+```{r, results='hide'}
+
+compute_elasticity_comparative <- 
+  function(
+    comparative
+    ) {
+    df <- comparative %>%
+      dplyr::arrange(i) %>%
+      dplyr::group_by(i) %>%
+      dplyr::mutate(
+        percentage_change_w = (w - dplyr::lag(w)) / dplyr::lag(w) * 100,
+        percentage_change_f = (f - dplyr::lag(f)) / dplyr::lag(f) * 100,
+        percentage_change_s_w = (s_w - dplyr::lag(s_w)) / dplyr::lag(s_w) * 100,
+        percentage_change_s_f = (s_f - dplyr::lag(s_f)) / dplyr::lag(s_f) * 100,
+        percentage_change_target = (target - dplyr::lag(target)) / dplyr::lag(target) * 100,
+        unit_change_target = target - dplyr::lag(target),
+        elasticity_w = percentage_change_w / percentage_change_target,
+        elasticity_f = percentage_change_f / percentage_change_target,    
+        elasticity_s_w = percentage_change_s_w / percentage_change_target,    
+        elasticity_s_f = percentage_change_s_f / percentage_change_target,
+        semi_elasticity_w = percentage_change_w / unit_change_target,
+        semi_elasticity_f = percentage_change_w / unit_change_target, 
+        semi_elasticity_s_w = percentage_change_s_w / unit_change_target,    
+        semi_elasticity_s_f = percentage_change_s_f / unit_change_target
+      ) %>%
+      dplyr::ungroup() 
+    
+    df$target <- target
+    
+    result_df <- 
+      df %>%
+      dplyr::select(
+        target,
+        i,
+        elasticity_w,
+        elasticity_f,
+        elasticity_s_w,
+        elasticity_s_f,
+        semi_elasticity_w,
+        semi_elasticity_f,
+        semi_elasticity_s_w,
+        semi_elasticity_s_f
+      ) 
+    
+  return(result_df)
+  }
+
+compute_elasticity_index <- 
+  function(
+    comparative
+  ){
+    base <-
+      comparative %>%
+      dplyr::pull(target)
+    
+    base <- base[length(base)/2]
+    
+    index <- 
+      which(
+        comparative$target == base
+      ) + 1
+    
+    return(index)
+  }
+
+df <- 
+  compute_elasticity_comparative(
+    comparative = comparative
+  )
+
+index <- 
+  compute_elasticity_index(
+    comparative = comparative
+  )
+    
+df_old <- 
+  df[
+  index,
+  1:ncol(df)
+  ]
+
+```
+
+### beta_w (Worker's utility) {.tabset}
+
+```{r}
+target <- "beta_w"
+comparative <- 
+  evaluate_comparative_t(
+    target = target,
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+```
+
+#### table
+
+```{r, results = "asis"}
+comparative %>%
+  dplyr::arrange(
+    i,
+    target
+  ) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+```{r, results = "asis"}
+p <- 
+  plot_comparative(
+    comparative = comparative
+  )
+```
+
+```{r, results='hide'}
+df <- 
+  compute_elasticity_comparative(
+    comparative = comparative
+  )
+
+index <- 
+  compute_elasticity_index(
+    comparative = comparative
+  )
+
+df_new <- 
+  df[
+    index,
+    1:ncol(df)
+    ]
+
+df_old <- 
+  rbind(
+    df_old, 
+    df_new
+    )
+```
+
+### beta_f (Client firm's utility) {.tabset}
+
+```{r}
+target <- "beta_f"
+comparative <- 
+  evaluate_comparative_t(
+    target = target,
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+```
+
+#### table
+
+```{r, results = "asis"}
+comparative %>%
+  dplyr::arrange(
+    i,
+    target
+  ) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+```{r, results = "asis"}
+p <- 
+  plot_comparative(
+    comparative = comparative
+  )
+```
+
+```{r, results='hide'}
+df <- 
+  compute_elasticity_comparative(
+    comparative = comparative
+  )
+
+index <- 
+  compute_elasticity_index(
+    comparative = comparative
+  )
+
+df_new <- 
+  df[
+    index,
+    1:ncol(df)
+    ]
+
+df_old <- 
+  rbind(
+    df_old, 
+    df_new
+    )
+```
+
+### gamma_w (Cost for handling workers) {.tabset}
+
+```{r}
+target <- "gamma_w"
+comparative <- 
+  evaluate_comparative_t(
+    target = target,
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+```
+
+#### table
+
+```{r, results = "asis"}
+comparative %>%
+  dplyr::arrange(
+    i,
+    target
+  ) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+```{r, results = "asis"}
+p <- 
+  plot_comparative(
+    comparative = comparative
+  )
+```
+
+```{r, results='hide'}
+df <- 
+  compute_elasticity_comparative(
+    comparative = comparative
+  )
+
+index <- 
+  compute_elasticity_index(
+    comparative = comparative
+  )
+
+df_new <- 
+  df[
+    index,
+    1:ncol(df)
+    ]
+
+df_old <- 
+  rbind(
+    df_old, 
+    df_new
+    )
+```
+
+### gamma_f (Cost for handling client firms) {.tabset}
+
+```{r}
+target <- "gamma_f"
+comparative <- 
+  evaluate_comparative_t(
+    target = target,
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+```
+
+#### table
+
+```{r, results = "asis"}
+comparative %>%
+  dplyr::arrange(
+    i,
+    target
+  ) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+```{r, results = "asis"}
+p <- 
+  plot_comparative(
+    comparative = comparative
+  )
+```
+
+```{r, results = "asis"}
+df <- 
+  compute_elasticity_comparative(
+    comparative = comparative
+  )
+
+index <- 
+  compute_elasticity_index(
+    comparative = comparative
+  )
+
+df_new <- 
+  df[
+    index,
+    1:ncol(df)
+    ]
+
+df_old <- 
+  rbind(
+    df_old, 
+    df_new
+    )
+```
+
+### lambda_w (Wage coefficient) {.tabset}
+
+```{r}
+target <- "lambda_w"
+comparative <- 
+  evaluate_comparative_t(
+    target = target,
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+```
+
+#### table
+
+```{r, results = "asis"}
+comparative %>%
+  dplyr::arrange(
+    i,
+    target
+  ) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+```{r, results = "asis"}
+p <- 
+  plot_comparative(
+    comparative = comparative
+  )
+```
+
+```{r, results='hide'}
+df <- 
+  compute_elasticity_comparative(
+    comparative = comparative
+  )
+
+index <- 
+  compute_elasticity_index(
+    comparative = comparative
+  )
+
+df_new <- 
+  df[
+    index,
+    1:ncol(df)
+    ]
+
+df_old <- 
+  rbind(
+    df_old, 
+    df_new
+    )
+```
+
+### lambda_f (fee coefficient) {.tabset}
+
+```{r}
+target <- "lambda_f"
+comparative <- 
+  evaluate_comparative_t(
+    target = target,
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+```
+
+#### table
+
+```{r, results = "asis"}
+comparative %>%
+  dplyr::arrange(
+    i,
+    target
+  ) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+```{r, results = "asis"}
+p <- 
+  plot_comparative(
+    comparative = comparative
+  )
+```
+
+```{r, results='hide'}
+df <- 
+  compute_elasticity_comparative(
+    comparative = comparative
+  )
+
+index <- 
+  compute_elasticity_index(
+    comparative = comparative
+  )
+
+df_new <- 
+  df[
+    index,
+    1:ncol(df)
+    ]
+
+df_old <- 
+  rbind(
+    df_old, 
+    df_new
+    )
+```
+
+### mu (Matching efficiency of THS) {.tabset}
+
+```{r}
+target <- "mu"
+comparative <- 
+  evaluate_comparative_t(
+    target = target,
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+```
+
+#### table
+
+```{r, results = "asis"}
+comparative %>%
+  dplyr::arrange(
+    i,
+    target
+  ) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+```{r, results = "asis"}
+p <- 
+  plot_comparative(
+    comparative = comparative
+  )
+```
+
+```{r, results='hide'}
+df <- 
+  compute_elasticity_comparative(
+    comparative = comparative
+  )
+
+index <- 
+  compute_elasticity_index(
+    comparative = comparative
+  )
+
+df_new <- 
+  df[
+    index,
+    1:ncol(df)
+    ]
+
+df_old <- 
+  rbind(
+    df_old, 
+    df_new
+    )
+```
+
+### size_w (number of workers) {.tabset}
+
+```{r}
+target <- "size_w"
+comparative <- 
+  evaluate_comparative_t(
+    target = target,
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+```
+
+#### table
+
+```{r, results = "asis"}
+comparative %>%
+  dplyr::arrange(
+    i,
+    target
+  ) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+```{r, results = "asis"}
+p <- 
+  plot_comparative(
+    comparative = comparative
+  )
+```
+
+```{r, results='hide'}
+df <- 
+  compute_elasticity_comparative(
+    comparative = comparative
+  )
+
+index <- 
+  compute_elasticity_index(
+    comparative = comparative
+  )
+
+df_new <- 
+  df[
+    index,
+    1:ncol(df)
+    ]
+
+df_old <- 
+  rbind(
+    df_old, 
+    df_new
+    )
+```
+
+### size_f (number of firms) {.tabset}
+
+```{r}
+target <- "size_f"
+comparative <- 
+  evaluate_comparative_t(
+    target = target,
+    t = t,
+    equilibrium = equilibrium,
+    solver = solver,
+    multistart = multistart
+  )
+```
+
+#### table
+
+```{r, results = "asis"}
+comparative %>%
+  dplyr::arrange(
+    i,
+    target
+  ) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+```{r, results = "asis"}
+p <- 
+  plot_comparative(
+    comparative = comparative
+  )
+```
+
+```{r, results='hide'}
+df <- 
+  compute_elasticity_comparative(
+    comparative = comparative
+  )
+
+index <- 
+  compute_elasticity_index(
+    comparative = comparative
+  )
+
+df_new <- 
+  df[
+    index,
+    1:ncol(df)
+    ]
+
+df_old <- 
+  rbind(
+    df_old, 
+    df_new
+    )
+```
+
+## Summary table {.tabset}
+
+```{r, results ='asis'}
+df_old %>%
+  kbl() %>%
+  kable_styling()
+```
